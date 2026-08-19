@@ -1,0 +1,9 @@
+pandas
+scipy
+scikit-learn
+numpy
+matplotlib
+timezonefinder
+pytz
+tqdm
+requests

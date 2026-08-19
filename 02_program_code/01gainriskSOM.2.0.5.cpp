@@ -77,6 +77,10 @@
 
 /* MACROS */
 
+// input file names
+#define CONFIG_FILE_PATH "../03_test_data/old_configuration_2.0.0.csv"
+#define PARAMETER_FILE_PATH "../03_test_data/old_parameters_2.0.0.csv"
+
 // output precision
 #define FIO_PRECISION 12
 
@@ -107,7 +111,7 @@ double dummyDouble = 0.0;
 std::string paramCells_2[PARAMFILE_MAXROWS][PARAMFILE_MAXCOLS];// new parameter data
 double dataCells[DATAFILE_MAXROWS][DATAFILE_MAXCOLS]; // up to 2000k rows and 100 columns of input data
 double finalOutCells[MAX_SUMMARY_ROWS][MAX_SUMMARY_COLS];
-long GSCells[101][11]; // contains the growing season start/end days
+double GSCells[101][11]; // contains the growing season start/end days
                        // a much simpler class for the full C++ version which just wraps access to the dataSet[][] array in the dsheet.Cells command
                        // exists to preserve the code legacy of the model, which is written in VBA for Excel
 std::string configCells[CONFIGFILE_MAXROWS][CONFIGFILE_MAXCOLS];
@@ -289,6 +293,19 @@ std::string getValueFromConfig(std::string name)// function to find cells in con
     return 0;
 }
 
+void printCurveToFile(std::string filename, double pinc, double pcrit, double arr[CURVE_MAX]) {
+    std::ofstream outFile(filename);
+    if (outFile) {
+        outFile << "p_inc,E(P)" << std::endl;
+        for (int i = 0; pinc * i <= pcrit; ++i) {
+            outFile << pinc * i << "," << arr[i] << std::endl;
+        }
+        outFile.close();
+        return;
+    }
+
+    std::cerr << "Error opening file: " << filename << std::endl;
+}
 
 class ModelProgram
 {
@@ -470,12 +487,12 @@ public:
 
     long dColYear, dColDay, dColTime, dColSolar, dColWind, dColRain, dColTAir, dColTSoil, dColD;
     //Data column positions - NOTE THAT THEY ARE OFFSET FROM colD, the starting data column (to avoid wasting io array space)
-    long dColF_p1, dColF_p2, dColF_p3, dColF_p4, dColF_p5, dColF_predawn, dColF_P, dColF_E, dColF_Gw, dColF_laVPD, dColF_leaftemp, dColF_ANet,
+    long dColF_p0, dColF_p1, dColF_p2, dColF_p3, dColF_p4, dColF_p5, dColF_predawn, dColF_P, dColF_E, dColF_Gw, dColF_laVPD, dColF_leaftemp, dColF_ANet,
     dColF_s1m2, dColF_ci, dColF_PPFD, dColF_S_P, dColF_S_E, dColF_S_Gw, dColF_S_laVPD, dColF_S_leaftemp,
     dColF_S_Anet, dColF_S_s1m2, dColF_S_ci, dColF_S_PPFD;
 
     long dColF_T_E, dColF_T_ANet, dColF_T_s1m2,
-    dColF_T_pcrit, dColF_T_Ecrit, dColF_CP_Pstem, dColF_CP_Proot, dColF_CP_kstem, dColF_CP_kleaf, dColF_CP_kplant,
+    dColF_T_pcrit, dColF_T_Ecrit, dColF_CP_Pleaf, dColF_CP_Pstem, dColF_CP_Proot, dColF_CP_kstem, dColF_CP_kleaf, dColF_CP_kplant,
     dColF_CP_kxylem, dColF_CP_kroot1, dColF_CP_kroot2, dColF_CP_kroot3, dColF_CP_kroot4, dColF_CP_kroot5, dColF_CP_krootAll,
     dColF_CP_Eroot1, dColF_CP_Eroot2, dColF_CP_Eroot3, dColF_CP_Eroot4, dColF_CP_Eroot5, dColF_CP_Empty1, dColF_CP_Empty2,
     dColF_End_watercontent, dColF_End_waterchange, dColF_End_rain, dColF_End_gwater, dColF_End_E, dColF_End_drainage,
@@ -576,8 +593,8 @@ public:
     bool locateRanges() // loads the parameter file 
     {
         // set the parameter and nametable filenames
-        std::string configFileName = "configuration_2.0.0.csv";
-        std::string param2FileName = "parameters_2.0.0.csv";
+        std::string configFileName = CONFIG_FILE_PATH;
+        std::string param2FileName = PARAMETER_FILE_PATH;
         
         // reading model controls
         std::cout << std::endl;
@@ -658,7 +675,8 @@ public:
         dColTAir = dColWind + 1;
         dColTSoil = dColTAir + 1;
         dColD = dColTSoil + 1;
-        dColF_p1 = dColD + 1;
+        dColF_p0 = dColD + 1;
+        dColF_p1 = dColF_p0 + 1;
         dColF_p2 = dColF_p1 + 1;
         dColF_p3 = dColF_p2 + 1;
         dColF_p4 = dColF_p3 + 1;
@@ -687,7 +705,8 @@ public:
         dColF_T_s1m2 = dColF_T_ANet + 1;
         dColF_T_pcrit = dColF_T_s1m2 + 1;
         dColF_T_Ecrit = dColF_T_pcrit + 1;
-        dColF_CP_Pstem = dColF_T_Ecrit + 1;
+        dColF_CP_Pleaf = dColF_T_Ecrit + 1;
+        dColF_CP_Pstem = dColF_CP_Pleaf + 1;
         dColF_CP_Proot = dColF_CP_Pstem + 1;
         dColF_CP_kstem = dColF_CP_Proot + 1;
         dColF_CP_kleaf = dColF_CP_kstem + 1;
@@ -810,9 +829,10 @@ public:
 
                 for (int rC = 0; rC < row.size(); rC++)
                 {
-                    if (rowCount < 100 && rowCount >= 0 && rC < 10 && rC >= 0)
-                        GSCells[rowCount + 1][rC + 1] = std::atol(row[rC].c_str()); // load array as double
+                    if (rowCount < 100 && rowCount >= 0 && rC < 10 && rC >= 0) {
+                        GSCells[rowCount + 1][rC + 1] = std::atof(row[rC].c_str()); // load array as double
                                                                                     // all data i/o is in double
+                    }
                 }
                 }
                 //std::cout << "4th Element(" << row[3] << ")\n";
@@ -943,12 +963,12 @@ public:
         // Are we working with multiple species? Values: y; n
         if (getValueFromConfig("i_multipleSP") == "y")
         {
-            std::cout << "On" << endl;
+            std::cout << "On" << std::endl;
             species_no_string = getValueFromConfig("i_speciesN");// for some reason the function can't read numbers
             species_no = std::atol(species_no_string.c_str());
             std::cout << "MODE: Setting species number to: " << species_no << std::endl; 
         } else {
-            std::cout << "Off" << endl;
+            std::cout << "Off" << std::endl;
             species_no = 1; // default
             std::cout << "MODE: Setting species number to: " << species_no << std::endl;
         }
@@ -960,27 +980,27 @@ public:
         // turns on/off groundwater flow. Values: on: y; off: n
         ground = getValueFromConfig("i_gWaterEnable");
         if (ground == "y"){
-            std::cout << "On" << endl;
+            std::cout << "On" << std::endl;
         } else {
-            std::cout << "Off" << endl;
+            std::cout << "Off" << std::endl;
         }
 
         std::cout << "     Soil water redistribution: "; //i_soilRedEnable
         // turns on/off soil redistribution routine. Values: on: y; off: n
         soilred = getValueFromConfig("i_soilRedEnable");
         if(soilred == "y"){
-            std::cout << "On" << endl;
+            std::cout << "On" << std::endl;
         } else {
-            std::cout << "Off" << endl;
+            std::cout << "Off" << std::endl;
         }
 
         std::cout << "        Soil water evaporation: "; //i_soilEvapEnable
         // turns on/off soil evaporation routine. Values: on: y; off: n
         sevap = getValueFromConfig("i_soilEvapEnable");
         if(sevap == "y"){
-            std::cout << "On" << endl;
+            std::cout << "On" << std::endl;
         } else {
-            std::cout << "Off" << endl;
+            std::cout << "Off" << std::endl;
         }
 
         // // Climate
@@ -1056,20 +1076,20 @@ public:
         // turns on/off xylem hysteresis from previous growing season. Values: n(off); y(on) 
         if(getValueFromConfig("i_cavitFatigue") == "y"){// "i_cavitFatigue"
             hysteresis = true;
-            std::cout << "On" << endl;
+            std::cout << "On" << std::endl;
         } else {
             hysteresis = false;// default
-            std::cout << "Off" << endl;
+            std::cout << "Off" << std::endl;
         }
 
         std::cout << "   Cavitation fatigue in roots: ";
         if (getValueFromConfig("i_stemOnly") == "n")
         {
             stem_only = false;
-            std::cout << "On" << endl;
+            std::cout << "On" << std::endl;
         } else {
             stem_only = true; // Default
-            std::cout << "Off" << endl;
+            std::cout << "Off" << std::endl;
         }
 
         // BA:GA optimization routine
@@ -1537,7 +1557,6 @@ public:
             soillayersTable[rowLR + k][colLR + 2] = std::to_string(100.0 * (ksatr[k] / ksatroot)); // % root saturated k
             soillayersTable[rowLR + k][colLR + 9] = std::to_string(ksatr[k]); // root kmax
         }
-
         rough = 0.01; //soil Zm, eqn 14.9, using table 5.1 for smooth surface, cm
         zdispl = 6.5 * rough; // soil d, eqn 14.9, using d = 6.5 Zm, eq 5.2,5.3
         zh = 0.2 * rough; // roughness for temperature
@@ -1744,7 +1763,7 @@ public:
         kminstem = 0;
         md = 0;
         ecritsystem = 0;
-        pcritsystem;
+        pcritsystem = 0;
         phigh = 0;
         failspot = "";
         setting = "";
@@ -2194,7 +2213,7 @@ public:
     }
 
     /* Extract CO2 from growing season data*/
-    double getCarbonByYear(long &yearNum, long (&GSCells)[101][11],const long &maxYears) 
+    double getCarbonByYear(long &yearNum, double (&GSCells)[101][11],const long &maxYears) 
     {
         long startRow = 2; // skipping the header
         double ca_year;
@@ -2641,6 +2660,7 @@ public:
                 } //End if//
             }
             else { //'layer//'s disconnected
+                std::cout << z << " is disconnected." << std::endl;
                 pd[z] = pcritr[z];
                 prh[z] = pcritr[z];
             } //End if//
@@ -2665,9 +2685,9 @@ public:
         else {
             failure = 1;
         } //End if//
-        for (z = 1; z <= layers; z++)//z = 1 To layers
+        for (z = 0; z <= layers; z++)//z = 1 To layers
         {
-            dSheet.Cells(rowD + dd, colD + dColF_p1 - 1 + o + z) = pd[z]; //'soil pressures by layer (only for rooted layers)
+            dSheet.Cells(rowD + dd, colD + dColF_p0 + o + z) = pd[z]; //'soil pressures by layer (only for rooted layers)
         } //for//z
             //'Cells(16 + dd, 65) = pd(0) //'water potential of top layer
     }
@@ -3236,7 +3256,8 @@ public:
         {
             if (true)
             {
-                if (kroot[z][halt] < kminroot[z])
+                // if (kroot[z][halt] < kminroot[z])
+                if ((kminroot[z] - kroot[z][halt]) > 1e-9)
                 {
                 kminroot[z] = kroot[z][halt];
                 phigh = int(proot[halt] / pinc) + 1; //'pressure datum just above the target
@@ -3299,8 +3320,9 @@ public:
                 p2 = pr;
                 rootflow();
                 elayer[z][p] = flow; //'flow through layer
-                if (flow != 0)
+                if (flow != 0) {
                 kroot[z][p] = std::abs(elayer[z][p] / (pr - prhizo[z][p]));
+                }
                 if (flow == 0) { //if//
                 if (refilling == "y") { //if// //'for refilling, starting point is always weibull
                     x = pd[z];
@@ -3689,7 +3711,7 @@ public:
             layerfailure[z] = tlayerfailure[z];
         }
     }
-
+ 
     void canopypressure()
     {
         //computes carbon-based middays; pressures and cost curve from virgin supply function, gas exchange from historical values
@@ -3759,8 +3781,9 @@ public:
             {
                 if ((pl - plold) == 0)
                 break; //gone to failure
-                if (p == 1)
+                if (p == 1) {
                 dedplzero = einc / (pl - plold); //note: pl is returned by "leaf" routine
+                }
                 dedpl = einc / (pl - plold);
                 if (dedpl < dedplmin)
                 dedplmin = dedpl; //insure that kloss only goes up
@@ -3806,7 +3829,7 @@ public:
         dpmax = 0;
         dpamax = -100;
         amaxmax = 0; //insures the gain function is monotonic
-
+        rmean = 0.0;
         dpamin = 0.0; // keep track of low values to avoid extreme negative profit curves producing a result
         do
         {
@@ -3847,7 +3870,6 @@ public:
                 dpamax = rmean;
                 md = pleafv[p]; //midday pressure for sun layer from virgin curves
             }
-            //print out gain and cost
 
         } while (!(einc * p >= gmax * lavpd[p] || total == 0 || (rmean < dpamax / cutoff && p > runmean && p > 15) || klossv[p] > 0.9 || p >= totalv));
 
@@ -4752,7 +4774,10 @@ public:
         }
         
         if ( dd == 1 || isNewYear){// Get CO2 for current year
-            ca = getCarbonByYear(yearVal,GSCells,maxYears); // get current year atmospheric CO2
+            if (useGSData)
+                ca = getCarbonByYear(yearVal,GSCells,maxYears); // get current year atmospheric CO2
+            else
+                ca = getValueFromParDbl("i_co2AmbPPM",species_no);
             std::cout << "Atmospheric CO2 concentration for " << yearVal << ": " << ca << std::endl;
             ca = ca * 0.000001;
             gs_ar_bs[gs_yearIndex] = bs;// save b value
@@ -4785,7 +4810,6 @@ public:
 
         gs_inGrowSeason = isInGrowSeasonSimple(); // just always call this!
                                                     //[/HNT]
-
         tod = dSheet.Cells(rowD + dd, colD + dColTime); //'time of day, standard local time in hour fraction
         obssolar = dSheet.Cells(rowD + dd, colD + dColSolar); //'observed total solar, horizontal, wm-2
         vpd = dSheet.Cells(rowD + dd, colD + dColD); //'midday vpd in kPa
@@ -4822,7 +4846,6 @@ public:
     twentyMarker:
 
         getpredawns(); //'passed initializing...update soil pressure of each layer
-
         if (failure == 1)
             return -1;//break;//Exit do
 
@@ -4834,6 +4857,7 @@ public:
         psynmax = -100;
         psynmaxsh = -100;
         skip = 0; //'this turns off psynthesis
+        // ksatl, pcritl
 
         do //'this loop obtains and stores the entire composite curve
         {
@@ -4856,8 +4880,9 @@ public:
             } //End if//
             stem(); //'gets stem and leaf pressures
             leaf();
-            if (test == 1)
+            if (test == 1) {
                 break;//Exit do
+            }
             compositecurve(); //'stores the entire composite curve
                             //'if skip = 0 { //if//
             leaftemps(); //'gets sun layer leaf temperature from energy balance
@@ -4896,6 +4921,7 @@ public:
             } //End if//
 
             if (total > 500 || total < 400) { //if//
+                // std::cout << "total > 500 or < 400" << std::endl;
                 einc = ecritsystem / 450.0; //'re-set Einc
                 if (ecritsystem == 0)
                 {
@@ -4905,6 +4931,7 @@ public:
                 testCount++; // [DEBUG]
                 if (testCount > 10)
                 {
+                    std::cout << "test count > 10" << std::endl;
                 testCount = 0;
                 goto fortyMarker;
                 }
@@ -5005,6 +5032,7 @@ public:
             //'HYDRAULIC OUTPUT (BASED ON SUN MD)
             dSheet.Cells(rowD + dd, colD + o + dColF_T_pcrit) = pcritsystem;
             dSheet.Cells(rowD + dd, colD + o + dColF_T_Ecrit) = ecritsystem * (1 / laperba) * (1.0 / 3600.0) * 55.4 * 1000; //'ecrit in mmol s-1m-2
+            dSheet.Cells(rowD + dd, colD + o + dColF_CP_Pleaf) = pleaf[halt];
             dSheet.Cells(rowD + dd, colD + o + dColF_CP_Pstem) = pstem[halt];
             dSheet.Cells(rowD + dd, colD + o + dColF_CP_Proot) = proot[halt];
             dSheet.Cells(rowD + dd, colD + o + dColF_CP_kstem) = kstem[halt]; //'k stem at midday in kg hr-1m-2MPa-1
@@ -5083,15 +5111,12 @@ public:
 
         if (isNewYear)
             isNewYear = false; // always set this
-
         return -1;
 
     }
 
     void modelProgramNewYear()
     {   
-        std::cout << std::endl;
-        std::cout << "Starting new year" << std::endl;
         // save the iterate-able water system states
         std::string oldGround;
         std::string oldRaining;
@@ -5163,248 +5188,250 @@ public:
             //Call CPP_setIterationCount(iter_Counter)
     }
 
-    long modelProgramMain(); //program starts here
-};
-
-ModelProgram mainProg;
-//ModelProgram backup[2];
-
-long ModelProgram::modelProgramMain() //program starts here
-{
-    std::cout << " -------------------------------------------------" << std::endl;
-    std::cout << "|    CARBON GAIN VS HYDRAULIC RISK MODEL V 2.0    |" << std::endl;
-    std::cout << " -------------------------------------------------" << std::endl;
-    std::cout << std::endl;
-
-    //Dim ddOutMod As Long // moved to module global
-    memset(finalOutCells, 0, sizeof(finalOutCells)); // clear the final outputs data. Normal data sheets get cleared on each iteration, but this one only per-run
-    std::cout << " -------------------------------------------------" << std::endl;
-    std::cout << "|            READING MODEL INPUT FILES            |" << std::endl;
-    std::cout << " -------------------------------------------------" << std::endl;
-    std::cout << std::endl;
-    bool lrSuccess = locateRanges(); //Finds all of the input/output sections across the workbook
-    // It also loads parameter and configuration file
-
-    if (!lrSuccess)
+    long modelProgramMain() //program starts here
     {
-        std::cout << "Unrecoverable model failure!" << std::endl;
-        std::cout << "Model stops " << std::endl;
+        std::cout << " -------------------------------------------------" << std::endl;
+        std::cout << "|    CARBON GAIN VS HYDRAULIC RISK MODEL V 2.0    |" << std::endl;
+        std::cout << " -------------------------------------------------" << std::endl;
         std::cout << std::endl;
-        return 0; // failure, unrecoverable
-    }
-    std::cout << " ------------------------------------------------" << std::endl;
-    std::cout << "|              MODEL CONFIGURATION               |" << std::endl;
-    std::cout << " ------------------------------------------------" << std::endl;
-    std::cout << std::endl;
-    setConfig();
-    iter_ddOutMod = 0;
-    iter_Counter = 0;
-    iter_code = 0;
 
-    cleanModelVars();
-    initModelVars();
-    readin(); //get all global parameters
-    if (stage_ID == STAGE_ID_FUT_STRESS_NOACCLIM) // override some if we're doing the odd "no acclimation stress profile"
-    {
-        std::cout << "Stage " << stage_ID << "; NoAcclim Stress Profile, overriding historical ca " << ca << " -> " << stage_CO2Fut << " and ksatp " << ksatp << " -> " << stage_KmaxFut << std::endl;
+        //Dim ddOutMod As Long // moved to module global
+        memset(finalOutCells, 0, sizeof(finalOutCells)); // clear the final outputs data. Normal data sheets get cleared on each iteration, but this one only per-run
+        std::cout << " -------------------------------------------------" << std::endl;
+        std::cout << "|            READING MODEL INPUT FILES            |" << std::endl;
+        std::cout << " -------------------------------------------------" << std::endl;
+        std::cout << std::endl;
+        bool lrSuccess = locateRanges(); //Finds all of the input/output sections across the workbook
+        // It also loads parameter and configuration file
 
-    }
-    std::cout << " ------------------------------------------------" << std::endl;
-    std::cout << "|             CLIMATE FORCING FILES              |" << std::endl;
-    std::cout << " ------------------------------------------------" << std::endl;
-    std::cout << std::endl;
-    readDataSheet();
-    readGSSheet();
-    readGrowSeasonData(); //hnt todo cleanup - should just put this in readin?
-    if ((iter_useAreaTable)) {
-        readSiteAreaValues();
-    }
-
-    if (iter_Counter == 0) { //we//re on the first iteration (or we//re not using iterations)
-
-        gs_yearIndex = 0; //multiyear
-        gs_prevDay = 0;
-        gs_inGrowSeason = false;
-    }
-    else
-    {
-        //things to do ONLY if we//re NOT on the first iteration
-    } // End If
-
-    memset(gs_ar_input, 0, sizeof(gs_ar_input));
-    memset(gs_ar_Anet, 0, sizeof(gs_ar_Anet));
-    memset(gs_ar_E, 0, sizeof(gs_ar_E));
-    memset(gs_ar_PLCp, 0, sizeof(gs_ar_PLCp));
-    memset(gs_ar_PLCx, 0, sizeof(gs_ar_PLCx));
-    memset(gs_ar_kPlant, 0, sizeof(gs_ar_kPlant));
-    memset(gs_ar_kXylem, 0, sizeof(gs_ar_kXylem));
-    memset(gs_ar_ET, 0, sizeof(gs_ar_ET));
-    memset(gs_ar_PLC85, 0, sizeof(gs_ar_PLC85));
-    memset(gs_ar_PLCSum, 0, sizeof(gs_ar_PLCSum));
-    memset(gs_ar_PLCSum_N, 0, sizeof(gs_ar_PLCSum_N));
-
-    memset(gs_ar_kPlantMean, 0, sizeof(gs_ar_kPlantMean));
-    memset(gs_ar_kPlantMean_N, 0, sizeof(gs_ar_kPlantMean_N));
-    memset(gs_ar_waterInitial, 0, sizeof(gs_ar_waterInitial));
-    memset(gs_ar_waterFinal, 0, sizeof(gs_ar_waterFinal));
-
-    memset(gs_ar_waterInitial_GS, 0, sizeof(gs_ar_waterInitial_GS));
-    memset(gs_ar_waterFinal_GS, 0, sizeof(gs_ar_waterFinal_GS));
-    memset(gs_ar_waterInput_GS, 0, sizeof(gs_ar_waterInput_GS));
-
-    memset(gs_ar_waterInitial_OFF, 0, sizeof(gs_ar_waterInitial_OFF));
-    memset(gs_ar_waterFinal_OFF, 0, sizeof(gs_ar_waterFinal_OFF));
-    memset(gs_ar_waterInput_OFF, 0, sizeof(gs_ar_waterInput_OFF));
-
-    memset(gs_ar_nrFailConverge, 0, sizeof(gs_ar_nrFailConverge));
-    memset(gs_ar_nrFailConverge_Water, 0, sizeof(gs_ar_nrFailConverge_Water));
-    memset(gs_ar_nrFailThreshold, 0, sizeof(gs_ar_nrFailThreshold));
-
-    memset(gs_ar_cica, 0, sizeof(gs_ar_cica));
-    memset(gs_ar_cica_N, 0, sizeof(gs_ar_cica_N));
-
-    memset(gs_ar_Aci, 0, sizeof(gs_ar_Aci));
-    memset(gs_ar_AnetDay, 0, sizeof(gs_ar_AnetDay));
-
-    memset(gs_ar_br, 0, sizeof(gs_ar_br));
-    memset(gs_ar_bs, 0, sizeof(gs_ar_bs));
-
-    for (k = 0; k <= layers; k++) // k = 0 To layers //assign source pressures, set layer participation
-    {
-        layerfailure[k] = "ok";
-        layer[k] = 0; //1 if out of function
-    } // Next k
-
-
-    failure = 0; //=1 for system failure at midday...terminates run
-    failspot = "no failure";
-    componentpcrits(); //gets pcrits for each component
-    failspot = "no failure";
-
-    for (k = 1; k <= layers; k++) // k = 1 To layers //exclude the top layer
-    {
-        kminroot[k] = ksatr[k];
-    } // Next k
-
-    kminstem = ksats;
-    kminleaf = ksatl;
-    kminplant = ksatp;
-
-    gwflow = 0; //inflow to bottom of root zone
-    drainage = 0; //drainage from bottom of root zone
-
-    dd = 0;
-    long ddMod = 0;
-    long successCode = 0;
-
-    do //loop through time steps
-    {
-        dd = dd + 1;
-
-        successCode = modelTimestepIter(dd);
-
-        if (successCode == 0)
+        if (!lrSuccess)
         {
             std::cout << "Unrecoverable model failure!" << std::endl;
+            std::cout << "Model stops " << std::endl;
+            std::cout << std::endl;
             return 0; // failure, unrecoverable
         }
-        else if (successCode > 0) // this returns the year if we've incremented it -- not necessary in the full C version (also only supports 1 year right now)
+        std::cout << " ------------------------------------------------" << std::endl;
+        std::cout << "|              MODEL CONFIGURATION               |" << std::endl;
+        std::cout << " ------------------------------------------------" << std::endl;
+        std::cout << std::endl;
+        setConfig();
+        iter_ddOutMod = 0;
+        iter_Counter = 0;
+        iter_code = 0;
+
+        cleanModelVars();
+        initModelVars();
+        readin(); //get all global parameters
+        if (stage_ID == STAGE_ID_FUT_STRESS_NOACCLIM) // override some if we're doing the odd "no acclimation stress profile"
         {
-            dd = dd - 1; //we need to repeat this timestep because we bailed early when finding a new year
-            gs_yearIndex = successCode;
+            std::cout << "Stage " << stage_ID << "; NoAcclim Stress Profile, overriding historical ca " << ca << " -> " << stage_CO2Fut << " and ksatp " << ksatp << " -> " << stage_KmaxFut << std::endl;
 
-            // if we're running without growing season limits, we need to record the "end of GS" water content now
-            // because we did not complete the previous timestep, back up 1 more to grab a value
-            if (!useGSData && gs_yearIndex > 0)
-                gs_ar_waterFinal_GS[gs_yearIndex - 1] = dSheet.Cells(rowD + dd - 1, colD + dColF_End_watercontent); // make sure this goes with the previous year
-
-            modelProgramNewYear();
         }
-        else // -1 = success, VBA bool convention
-        {
-            int breakpoint = 1137; // success, in the C version we just continue instead of outputting
-                                    // do all CSV writing at the end
-
-                                    // if we're running without growing season limits, we need to record the "end of GS" water content now
-            if (!useGSData && gs_yearIndex > 0)
-                gs_ar_waterFinal_GS[gs_yearIndex] = dSheet.Cells(rowD + dd - 1, colD + dColF_End_watercontent); // if this was the end of the set of years, gs_yearIndex will not have been changed so use as-is
+        std::cout << " ------------------------------------------------" << std::endl;
+        std::cout << "|             CLIMATE FORCING FILES              |" << std::endl;
+        std::cout << " ------------------------------------------------" << std::endl;
+        std::cout << std::endl;
+        readDataSheet();
+        readGSSheet();
+        readGrowSeasonData(); //hnt todo cleanup - should just put this in readin?
+        if ((iter_useAreaTable)) {
+            readSiteAreaValues();
         }
 
-        if (dd % 1000 == 0)
-            std::cout << "Timestep " << dd << " completed" << std::endl;
-    } while (!(dSheet.Cells(rowD + 1 + dd, colD + dColDay) < 0.01)); // loop until the jd value on next row is zero -- it's an integer, but everything is stored in the array as double
+        if (iter_Counter == 0) { //we//re on the first iteration (or we//re not using iterations)
 
-                                                                        //Dim gsCount As Long
-    long gsCount = 0;
-    for (gsCount = 0; gsCount <= gs_yearIndex; gsCount++) // gsCount = 0 To gs_yearIndex
-    {
-        if (gs_ar_years[gsCount] > 0) { //don//t bother with years that don//t exist
-            dSheet.fCells(rowD + iter_Counter + 1 + gsCount /* *40 */, colD /*+ gsCount * 16*/ + dColF_GS_year) = gs_ar_years[gsCount]; //gs_ar_Anet(gs_yearIndex) //[HNT] todo improve I don//t like using this hard-coded constant for the size of the C interface array here, maybe check how many data columns there really are in the sheet
-            dSheet.fCells(rowD + iter_Counter + 1 + gsCount /* *40 */, colD /*+ gsCount * 16*/ + dColF_GS_input) = gs_ar_input[gsCount];
-            dSheet.fCells(rowD + iter_Counter + 1 + gsCount /* *40 */, colD /*+ gsCount * 16*/ + dColF_GS_Anet) = gs_ar_Anet[gsCount];
-            dSheet.fCells(rowD + iter_Counter + 1 + gsCount /* *40 */, colD /*+ gsCount * 16*/ + dColF_GS_E) = gs_ar_E[gsCount];
-            dSheet.fCells(rowD + iter_Counter + 1 + gsCount /* *40 */, colD /*+ gsCount * 16*/ + dColF_GS_PLCp) = gs_ar_PLCp[gsCount];
-            dSheet.fCells(rowD + iter_Counter + 1 + gsCount /* *40 */, colD /*+ gsCount * 16*/ + dColF_GS_PLCx) = gs_ar_PLCx[gsCount];
-            dSheet.fCells(rowD + iter_Counter + 1 + gsCount /* *40 */, colD /*+ gsCount * 16*/ + dColF_GS_kPlant) = gs_ar_kPlant[gsCount];
-            dSheet.fCells(rowD + iter_Counter + 1 + gsCount /* *40 */, colD /*+ gsCount * 16*/ + dColF_GS_kXylem) = gs_ar_kXylem[gsCount];
-            dSheet.fCells(rowD + iter_Counter + 1 + gsCount /* *40 */, colD /*+ gsCount * 16*/ + dColF_GS_ET) = gs_ar_ET[gsCount];
-            dSheet.fCells(rowD + iter_Counter + 1 + gsCount /* *40 */, colD /*+ gsCount * 16*/ + dColF_GS_ET + 1) = rainEnabled;
-            if (ground == "y")
-                dSheet.fCells(rowD + iter_Counter + 1 + gsCount /* *40 */, colD /*+ gsCount * 16*/ + dColF_GS_ET + 2) = 1.0;
-            else
-                dSheet.fCells(rowD + iter_Counter + 1 + gsCount /* *40 */, colD /*+ gsCount * 16*/ + dColF_GS_ET + 2) = 0.0;
-            dSheet.fCells(rowD + iter_Counter + 1 + gsCount /* *40 */, colD /*+ gsCount * 16*/ + dColF_GS_ET + 3) = ffc;
-            dSheet.fCells(rowD + iter_Counter + 1 + gsCount /* *40 */, colD /*+ gsCount * 16*/ + dColF_GS_ET + 4) = grounddistance;
-            dSheet.fCells(rowD + iter_Counter + 1 + gsCount /* *40 */, colD /*+ gsCount * 16*/ + dColF_GS_ET + 5) = gs_ar_PLC85[gsCount];
-            dSheet.fCells(rowD + iter_Counter + 1 + gsCount /* *40 */, colD /*+ gsCount * 16*/ + dColF_GS_ET + 6) = baperga / 0.0001;
-            dSheet.fCells(rowD + iter_Counter + 1 + gsCount /* *40 */, colD /*+ gsCount * 16*/ + dColF_GS_ET + 7) = laperba; // need this for the final calcs
-                                                                                                                            //dSheet.fCells(rowD + iter_Counter + 1 + gsCount /* *40 */, colD /*+ gsCount * 16*/ + dColF_GS_ET + 7) = gs_ar_kPlantMean[gsCount] / gs_ar_kPlantMean_N[gsCount];
-            dSheet.fCells(rowD + iter_Counter + 1 + gsCount /* *40 */, colD /*+ gsCount * 16*/ + dColF_GS_ET + 8) = gs_ar_PLCSum[gsCount] / gs_ar_PLCSum_N[gsCount];
-
-            dSheet.fCells(rowD + iter_Counter + 1 + gsCount /* *40 */, colD /*+ gsCount * 16*/ + dColF_GS_ET + 9) = gs_ar_waterFinal[gsCount] - gs_ar_waterInitial[gsCount];
-            dSheet.fCells(rowD + iter_Counter + 1 + gsCount /* *40 */, colD /*+ gsCount * 16*/ + dColF_GS_ET + 10) = gs_ar_waterInitial[gsCount]; // we want to know what the initial was too, in case it's not FC
-
-            dSheet.fCells(rowD + iter_Counter + 1 + gsCount /* *40 */, colD /*+ gsCount * 16*/ + dColF_GS_ET + 11) = gs_ar_waterInitial_OFF[gsCount]; // initial content for preceding off-season
-            dSheet.fCells(rowD + iter_Counter + 1 + gsCount /* *40 */, colD /*+ gsCount * 16*/ + dColF_GS_ET + 12) = gs_ar_waterInput_OFF[gsCount]; // input for preceding off-season
-            dSheet.fCells(rowD + iter_Counter + 1 + gsCount /* *40 */, colD /*+ gsCount * 16*/ + dColF_GS_ET + 13) = gs_ar_waterFinal_OFF[gsCount]; // final content for preceding off-season
-
-            dSheet.fCells(rowD + iter_Counter + 1 + gsCount /* *40 */, colD /*+ gsCount * 16*/ + dColF_GS_ET + 14) = gs_ar_waterInitial_GS[gsCount]; // initial content for growing season
-            dSheet.fCells(rowD + iter_Counter + 1 + gsCount /* *40 */, colD /*+ gsCount * 16*/ + dColF_GS_ET + 15) = gs_ar_waterInput_GS[gsCount]; // input for growing season
-            dSheet.fCells(rowD + iter_Counter + 1 + gsCount /* *40 */, colD /*+ gsCount * 16*/ + dColF_GS_ET + 16) = gs_ar_waterFinal_GS[gsCount]; // final content for growing season
-
-            dSheet.fCells(rowD + iter_Counter + 1 + gsCount /* *40 */, colD /*+ gsCount * 16*/ + dColF_GS_ET + 17) = gs_ar_nrFailConverge[gsCount]; // number of convergence failures
-            dSheet.fCells(rowD + iter_Counter + 1 + gsCount /* *40 */, colD /*+ gsCount * 16*/ + dColF_GS_ET + 18) = gs_ar_nrFailConverge_Water[gsCount] / gs_ar_nrFailConverge[gsCount]; // avg water content during convergence failure
-            dSheet.fCells(rowD + iter_Counter + 1 + gsCount /* *40 */, colD /*+ gsCount * 16*/ + dColF_GS_ET + 19) = gs_ar_nrFailConverge_WaterMax[gsCount]; // MAX water content during convergence failure
-            dSheet.fCells(rowD + iter_Counter + 1 + gsCount /* *40 */, colD /*+ gsCount * 16*/ + dColF_GS_ET + 20) = gs_ar_nrFailThreshold[gsCount]; // MAX water content during convergence failure
-
-            dSheet.fCells(rowD + iter_Counter + 1 + gsCount /* *40 */, colD /*+ gsCount * 16*/ + dColF_GS_ET + 21) = gs_ar_cica[gsCount] / gs_ar_cica_N[gsCount];
-
-            dSheet.fCells(rowD + iter_Counter + 1 + gsCount /* *40 */, colD /*+ gsCount * 16*/ + dColF_GS_ET + 23) = (gs_ar_Aci[gsCount] / gs_ar_AnetDay[gsCount]) * patm * 1000.0;
-            dSheet.fCells(rowD + iter_Counter + 1 + gsCount /* *40 */, colD /*+ gsCount * 16*/ + dColF_GS_ET + 24) = (gs_ar_Aci[gsCount] / gs_ar_AnetDay[gsCount]) / ca;
-            
-            dSheet.fCells(rowD + iter_Counter + 1 + gsCount /* *40 */, colD /*+ gsCount * 16*/ + dColF_GS_ET + 26) = gs_ar_br[gsCount];
-            dSheet.fCells(rowD + iter_Counter + 1 + gsCount /* *40 */, colD /*+ gsCount * 16*/ + dColF_GS_ET + 27) = gs_ar_bs[gsCount];
-
-            /*memcpy(&testProg, this, sizeof(ModelProgram));
-            std::cout << "TEST! My REAL ci/ca " << gs_ar_cica[gsCount] / gs_ar_cica_N[gsCount] << std::endl;
-            std::cout << "TEST! My COPIED ci/ca " << testProg.gs_ar_cica[gsCount] / testProg.gs_ar_cica_N[gsCount] << std::endl;*/
+            gs_yearIndex = 0; //multiyear
+            gs_prevDay = 0;
+            gs_inGrowSeason = false;
         }
         else
         {
-            break; //quit the loop if we reach the end of the growing seasons list early somehow
+            //things to do ONLY if we//re NOT on the first iteration
         } // End If
-    } // Next gsCount
-    std::cout << std::endl;
-    saveOutputSheet("./" + stageNames[stage_ID] + "_OUTPUT_timesteps", "timesteps");
-    saveOutputSheet("./" + stageNames[stage_ID] + "_OUTPUT_summary", "summary");
 
-    return 1;
-}
+        memset(gs_ar_input, 0, sizeof(gs_ar_input));
+        memset(gs_ar_Anet, 0, sizeof(gs_ar_Anet));
+        memset(gs_ar_E, 0, sizeof(gs_ar_E));
+        memset(gs_ar_PLCp, 0, sizeof(gs_ar_PLCp));
+        memset(gs_ar_PLCx, 0, sizeof(gs_ar_PLCx));
+        memset(gs_ar_kPlant, 0, sizeof(gs_ar_kPlant));
+        memset(gs_ar_kXylem, 0, sizeof(gs_ar_kXylem));
+        memset(gs_ar_ET, 0, sizeof(gs_ar_ET));
+        memset(gs_ar_PLC85, 0, sizeof(gs_ar_PLC85));
+        memset(gs_ar_PLCSum, 0, sizeof(gs_ar_PLCSum));
+        memset(gs_ar_PLCSum_N, 0, sizeof(gs_ar_PLCSum_N));
+
+        memset(gs_ar_kPlantMean, 0, sizeof(gs_ar_kPlantMean));
+        memset(gs_ar_kPlantMean_N, 0, sizeof(gs_ar_kPlantMean_N));
+        memset(gs_ar_waterInitial, 0, sizeof(gs_ar_waterInitial));
+        memset(gs_ar_waterFinal, 0, sizeof(gs_ar_waterFinal));
+
+        memset(gs_ar_waterInitial_GS, 0, sizeof(gs_ar_waterInitial_GS));
+        memset(gs_ar_waterFinal_GS, 0, sizeof(gs_ar_waterFinal_GS));
+        memset(gs_ar_waterInput_GS, 0, sizeof(gs_ar_waterInput_GS));
+
+        memset(gs_ar_waterInitial_OFF, 0, sizeof(gs_ar_waterInitial_OFF));
+        memset(gs_ar_waterFinal_OFF, 0, sizeof(gs_ar_waterFinal_OFF));
+        memset(gs_ar_waterInput_OFF, 0, sizeof(gs_ar_waterInput_OFF));
+
+        memset(gs_ar_nrFailConverge, 0, sizeof(gs_ar_nrFailConverge));
+        memset(gs_ar_nrFailConverge_Water, 0, sizeof(gs_ar_nrFailConverge_Water));
+        memset(gs_ar_nrFailThreshold, 0, sizeof(gs_ar_nrFailThreshold));
+
+        memset(gs_ar_cica, 0, sizeof(gs_ar_cica));
+        memset(gs_ar_cica_N, 0, sizeof(gs_ar_cica_N));
+
+        memset(gs_ar_Aci, 0, sizeof(gs_ar_Aci));
+        memset(gs_ar_AnetDay, 0, sizeof(gs_ar_AnetDay));
+
+        memset(gs_ar_br, 0, sizeof(gs_ar_br));
+        memset(gs_ar_bs, 0, sizeof(gs_ar_bs));
+
+        for (k = 0; k <= layers; k++) // k = 0 To layers //assign source pressures, set layer participation
+        {
+            layerfailure[k] = "ok";
+            layer[k] = 0; //1 if out of function
+        } // Next k
+
+
+        failure = 0; //=1 for system failure at midday...terminates run
+        failspot = "no failure";
+        componentpcrits(); //gets pcrits for each component
+        failspot = "no failure";
+
+        for (k = 1; k <= layers; k++) // k = 1 To layers //exclude the top layer
+        {
+            kminroot[k] = ksatr[k];
+        } // Next k
+
+        kminstem = ksats;
+        kminleaf = ksatl;
+        kminplant = ksatp;
+
+        gwflow = 0; //inflow to bottom of root zone
+        drainage = 0; //drainage from bottom of root zone
+
+        dd = 0;
+        long ddMod = 0;
+        long successCode = 0;
+
+        do //loop through time steps
+        {
+            dd = dd + 1;
+
+            successCode = modelTimestepIter(dd);
+
+            if (successCode == 0)
+            {
+                std::cout << "Unrecoverable model failure!" << std::endl;
+                return 1; // failure, unrecoverable
+            }
+            else if (successCode > 0) // this returns the year if we've incremented it -- not necessary in the full C version (also only supports 1 year right now)
+            {
+                dd = dd - 1; //we need to repeat this timestep because we bailed early when finding a new year
+                gs_yearIndex = successCode;
+
+                // if we're running without growing season limits, we need to record the "end of GS" water content now
+                // because we did not complete the previous timestep, back up 1 more to grab a value
+                if (!useGSData && gs_yearIndex > 0)
+                    gs_ar_waterFinal_GS[gs_yearIndex - 1] = dSheet.Cells(rowD + dd - 1, colD + dColF_End_watercontent); // make sure this goes with the previous year
+
+                modelProgramNewYear();
+            }
+            else // -1 = success, VBA bool convention
+            {
+                int breakpoint = 1137; // success, in the C version we just continue instead of outputting
+                                        // do all CSV writing at the end
+
+                                        // if we're running without growing season limits, we need to record the "end of GS" water content now
+                if (!useGSData && gs_yearIndex > 0)
+                    gs_ar_waterFinal_GS[gs_yearIndex] = dSheet.Cells(rowD + dd - 1, colD + dColF_End_watercontent); // if this was the end of the set of years, gs_yearIndex will not have been changed so use as-is
+            }
+
+            if (dd % 1000 == 0)
+                std::cout << "Timestep " << dd << " completed" << std::endl;
+        } while (!(dSheet.Cells(rowD + 1 + dd, colD + dColDay) < 0.01)); // loop until the jd value on next row is zero -- it's an integer, but everything is stored in the array as double
+
+                                                                            //Dim gsCount As Long
+        long gsCount = 0;
+        for (gsCount = 0; gsCount <= gs_yearIndex; gsCount++) // gsCount = 0 To gs_yearIndex
+        {
+            if (gs_ar_years[gsCount] > 0) { //don//t bother with years that don//t exist
+                dSheet.fCells(rowD + iter_Counter + 1 + gsCount /* *40 */, colD /*+ gsCount * 16*/ + dColF_GS_year) = gs_ar_years[gsCount]; //gs_ar_Anet(gs_yearIndex) //[HNT] todo improve I don//t like using this hard-coded constant for the size of the C interface array here, maybe check how many data columns there really are in the sheet
+                dSheet.fCells(rowD + iter_Counter + 1 + gsCount /* *40 */, colD /*+ gsCount * 16*/ + dColF_GS_input) = gs_ar_input[gsCount];
+                dSheet.fCells(rowD + iter_Counter + 1 + gsCount /* *40 */, colD /*+ gsCount * 16*/ + dColF_GS_Anet) = gs_ar_Anet[gsCount];
+                dSheet.fCells(rowD + iter_Counter + 1 + gsCount /* *40 */, colD /*+ gsCount * 16*/ + dColF_GS_E) = gs_ar_E[gsCount];
+                dSheet.fCells(rowD + iter_Counter + 1 + gsCount /* *40 */, colD /*+ gsCount * 16*/ + dColF_GS_PLCp) = gs_ar_PLCp[gsCount];
+                dSheet.fCells(rowD + iter_Counter + 1 + gsCount /* *40 */, colD /*+ gsCount * 16*/ + dColF_GS_PLCx) = gs_ar_PLCx[gsCount];
+                dSheet.fCells(rowD + iter_Counter + 1 + gsCount /* *40 */, colD /*+ gsCount * 16*/ + dColF_GS_kPlant) = gs_ar_kPlant[gsCount];
+                dSheet.fCells(rowD + iter_Counter + 1 + gsCount /* *40 */, colD /*+ gsCount * 16*/ + dColF_GS_kXylem) = gs_ar_kXylem[gsCount];
+                dSheet.fCells(rowD + iter_Counter + 1 + gsCount /* *40 */, colD /*+ gsCount * 16*/ + dColF_GS_ET) = gs_ar_ET[gsCount];
+                dSheet.fCells(rowD + iter_Counter + 1 + gsCount /* *40 */, colD /*+ gsCount * 16*/ + dColF_GS_ET + 1) = rainEnabled;
+                if (ground == "y")
+                    dSheet.fCells(rowD + iter_Counter + 1 + gsCount /* *40 */, colD /*+ gsCount * 16*/ + dColF_GS_ET + 2) = 1.0;
+                else
+                    dSheet.fCells(rowD + iter_Counter + 1 + gsCount /* *40 */, colD /*+ gsCount * 16*/ + dColF_GS_ET + 2) = 0.0;
+                dSheet.fCells(rowD + iter_Counter + 1 + gsCount /* *40 */, colD /*+ gsCount * 16*/ + dColF_GS_ET + 3) = ffc;
+                dSheet.fCells(rowD + iter_Counter + 1 + gsCount /* *40 */, colD /*+ gsCount * 16*/ + dColF_GS_ET + 4) = grounddistance;
+                dSheet.fCells(rowD + iter_Counter + 1 + gsCount /* *40 */, colD /*+ gsCount * 16*/ + dColF_GS_ET + 5) = gs_ar_PLC85[gsCount];
+                dSheet.fCells(rowD + iter_Counter + 1 + gsCount /* *40 */, colD /*+ gsCount * 16*/ + dColF_GS_ET + 6) = baperga / 0.0001;
+                dSheet.fCells(rowD + iter_Counter + 1 + gsCount /* *40 */, colD /*+ gsCount * 16*/ + dColF_GS_ET + 7) = laperba; // need this for the final calcs
+                                                                                                                                //dSheet.fCells(rowD + iter_Counter + 1 + gsCount /* *40 */, colD /*+ gsCount * 16*/ + dColF_GS_ET + 7) = gs_ar_kPlantMean[gsCount] / gs_ar_kPlantMean_N[gsCount];
+                dSheet.fCells(rowD + iter_Counter + 1 + gsCount /* *40 */, colD /*+ gsCount * 16*/ + dColF_GS_ET + 8) = gs_ar_PLCSum[gsCount] / gs_ar_PLCSum_N[gsCount];
+
+                dSheet.fCells(rowD + iter_Counter + 1 + gsCount /* *40 */, colD /*+ gsCount * 16*/ + dColF_GS_ET + 9) = gs_ar_waterFinal[gsCount] - gs_ar_waterInitial[gsCount];
+                dSheet.fCells(rowD + iter_Counter + 1 + gsCount /* *40 */, colD /*+ gsCount * 16*/ + dColF_GS_ET + 10) = gs_ar_waterInitial[gsCount]; // we want to know what the initial was too, in case it's not FC
+
+                dSheet.fCells(rowD + iter_Counter + 1 + gsCount /* *40 */, colD /*+ gsCount * 16*/ + dColF_GS_ET + 11) = gs_ar_waterInitial_OFF[gsCount]; // initial content for preceding off-season
+                dSheet.fCells(rowD + iter_Counter + 1 + gsCount /* *40 */, colD /*+ gsCount * 16*/ + dColF_GS_ET + 12) = gs_ar_waterInput_OFF[gsCount]; // input for preceding off-season
+                dSheet.fCells(rowD + iter_Counter + 1 + gsCount /* *40 */, colD /*+ gsCount * 16*/ + dColF_GS_ET + 13) = gs_ar_waterFinal_OFF[gsCount]; // final content for preceding off-season
+
+                dSheet.fCells(rowD + iter_Counter + 1 + gsCount /* *40 */, colD /*+ gsCount * 16*/ + dColF_GS_ET + 14) = gs_ar_waterInitial_GS[gsCount]; // initial content for growing season
+                dSheet.fCells(rowD + iter_Counter + 1 + gsCount /* *40 */, colD /*+ gsCount * 16*/ + dColF_GS_ET + 15) = gs_ar_waterInput_GS[gsCount]; // input for growing season
+                dSheet.fCells(rowD + iter_Counter + 1 + gsCount /* *40 */, colD /*+ gsCount * 16*/ + dColF_GS_ET + 16) = gs_ar_waterFinal_GS[gsCount]; // final content for growing season
+
+                dSheet.fCells(rowD + iter_Counter + 1 + gsCount /* *40 */, colD /*+ gsCount * 16*/ + dColF_GS_ET + 17) = gs_ar_nrFailConverge[gsCount]; // number of convergence failures
+                dSheet.fCells(rowD + iter_Counter + 1 + gsCount /* *40 */, colD /*+ gsCount * 16*/ + dColF_GS_ET + 18) = gs_ar_nrFailConverge_Water[gsCount] / gs_ar_nrFailConverge[gsCount]; // avg water content during convergence failure
+                dSheet.fCells(rowD + iter_Counter + 1 + gsCount /* *40 */, colD /*+ gsCount * 16*/ + dColF_GS_ET + 19) = gs_ar_nrFailConverge_WaterMax[gsCount]; // MAX water content during convergence failure
+                dSheet.fCells(rowD + iter_Counter + 1 + gsCount /* *40 */, colD /*+ gsCount * 16*/ + dColF_GS_ET + 20) = gs_ar_nrFailThreshold[gsCount]; // MAX water content during convergence failure
+
+                dSheet.fCells(rowD + iter_Counter + 1 + gsCount /* *40 */, colD /*+ gsCount * 16*/ + dColF_GS_ET + 21) = gs_ar_cica[gsCount] / gs_ar_cica_N[gsCount];
+
+                dSheet.fCells(rowD + iter_Counter + 1 + gsCount /* *40 */, colD /*+ gsCount * 16*/ + dColF_GS_ET + 23) = (gs_ar_Aci[gsCount] / gs_ar_AnetDay[gsCount]) * patm * 1000.0;
+                dSheet.fCells(rowD + iter_Counter + 1 + gsCount /* *40 */, colD /*+ gsCount * 16*/ + dColF_GS_ET + 24) = (gs_ar_Aci[gsCount] / gs_ar_AnetDay[gsCount]) / ca;
+                
+                dSheet.fCells(rowD + iter_Counter + 1 + gsCount /* *40 */, colD /*+ gsCount * 16*/ + dColF_GS_ET + 26) = gs_ar_br[gsCount];
+                dSheet.fCells(rowD + iter_Counter + 1 + gsCount /* *40 */, colD /*+ gsCount * 16*/ + dColF_GS_ET + 27) = gs_ar_bs[gsCount];
+
+                /*memcpy(&testProg, this, sizeof(ModelProgram));
+                std::cout << "TEST! My REAL ci/ca " << gs_ar_cica[gsCount] / gs_ar_cica_N[gsCount] << std::endl;
+                std::cout << "TEST! My COPIED ci/ca " << testProg.gs_ar_cica[gsCount] / testProg.gs_ar_cica_N[gsCount] << std::endl;*/
+            }
+            else
+            {
+                break; //quit the loop if we reach the end of the growing seasons list early somehow
+            } // End If
+        } // Next gsCount
+        std::cout << std::endl;
+        saveOutputSheet("./" + stageNames[stage_ID] + "_OUTPUT_timesteps", "timesteps");
+        saveOutputSheet("./" + stageNames[stage_ID] + "_OUTPUT_summary", "summary");
+
+        return 0;
+    }
+};
+
+//ModelProgram backup[2];
 
 int main()
 {
+    // Initialize ModelProgram object, this was initially done by declaring outside of main, but following programming practices
+    // it is better to manually allocate on heap.
+    ModelProgram *mainProg = new ModelProgram;
+    
     // seed the random number generator with something crazy
-    srand((unsigned)(time(0) * time(0)));
+    // srand((unsigned)(time(0) * time(0)));
+    srand(42);
     // set the cout decimal precision
     std::cout.precision(12);
 
@@ -5413,19 +5440,21 @@ int main()
     long result = 0;
 
     // to do a normal run that's only based on local folder parameter sheet settings, set the stage_ID to zero
-    mainProg.stage_ID = STAGE_ID_NONE;
-    result = mainProg.modelProgramMain(); // for returning failure error codes... not really used in this version
+    mainProg->stage_ID = STAGE_ID_NONE;
+    result = mainProg->modelProgramMain(); // for returning failure error codes... not really used in this version
 
-    if (!result)
+    if (result)
     {
         std::cout << std::endl;
-        std::cout << "Model Failure! Stage " << mainProg.stage_ID << std::endl;
+        std::cout << "Model Failure! Stage " << mainProg->stage_ID << std::endl;
+        delete mainProg;
         return 0;
     }
     else
     {
         std::cout << std::endl;
-        std::cout << "Model Success! Stage " << mainProg.stage_ID << std::endl;
+        std::cout << "Model Success! Stage " << mainProg->stage_ID << std::endl;
+        delete mainProg;
     }
-    return 1;
+    return 0;
 }
